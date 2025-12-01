@@ -1,15 +1,15 @@
 <?php
 /**
- * Plugin Name: WP SMTP & Mailer
+ * Plugin Name: WP SMTP & Mailer 🦊
  * Description: Configure SMTP, send custom emails with CC/BCC via AJAX, and view compact logs in admin + dashboard widget.
- * Version: 1.6.0
+ * Version: 1.7.0
  * Author: Storz
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPSMTP_OPTION_KEY', 'wpsmtp_settings');
-define('WPSMTP_LOG_OPTION_KEY', 'WPSMTP_LOG_OPTION_KEY');
+define('WPSMTP_LOG_OPTION_KEY', 'wpsmtp_logs');
 
 /**
  * Disable update checks for this plugin
@@ -145,15 +145,17 @@ function wpsmtp_set_html_mail_type() {
 }
 
 /**
- * Admin menu (Settings → WP SMTP & Mailer)
+ * Top-level admin menu (main wp menu with icon)
  */
 add_action('admin_menu', function () {
-    add_options_page(
-        'WP SMTP & Mailer',
-        'WP SMTP & Mailer',
-        'manage_options',
-        'wpsmtp',
-        'wpsmtp_admin_page'
+    add_menu_page(
+        'WP SMTP & Mailer',          // Page title
+        'WP SMTP',                   // Menu title
+        'manage_options',            // Capability
+        'wpsmtp',                    // Menu slug
+        'wpsmtp_admin_page',         // Callback
+        'dashicons-email-alt2',      // Icon
+        65                           // Position
     );
 });
 
@@ -223,7 +225,7 @@ function wpsmtp_dashboard_widget_display() {
             echo '</tbody></table>';
         }
 
-        echo '<p style="margin-top:4px;font-size:10px;color:#777;">Full logs and advanced composer in Settings → WP SMTP & Mailer.</p>';
+        echo '<p style="margin-top:4px;font-size:10px;color:#777;">Full logs and advanced composer in WP SMTP menu.</p>';
         ?>
     </div>
 
