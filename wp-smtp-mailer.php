@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: WP SMTP & Mailer
- * Description: Configure SMTP, send custom emails, and view logs in a modern UI.
- * Version: 1.2.0
+ * Description: Configure SMTP, send custom emails with AJAX, and view logs in a modern UI.
+ * Version: 1.3.0
  * Author: Storz
  */
 
@@ -52,8 +52,7 @@ function wpsmtp_get_settings() {
 }
 
 /**
- * LOGGING
- * Store up to 50 recent entries in options table
+ * LOGS
  */
 function wpsmtp_add_log($type, $message, $context = array()) {
     $logs = get_option(WPSMTP_LOG_OPTION_KEY, array());
@@ -68,7 +67,6 @@ function wpsmtp_add_log($type, $message, $context = array()) {
         'context' => is_array($context) ? $context : array(),
     );
 
-    // Keep only last 50 entries
     if (count($logs) > 50) {
         $logs = array_slice($logs, -50);
     }
@@ -81,7 +79,6 @@ function wpsmtp_get_logs() {
     if (!is_array($logs)) {
         $logs = array();
     }
-    // newest first
     return array_reverse($logs);
 }
 
@@ -90,33 +87,27 @@ function wpsmtp_clear_logs() {
 }
 
 /**
- * Catch wp_mail_failed errors and log them
+ * Catch wp_mail_failed
  */
 add_action('wp_mail_failed', function ($wp_error) {
-    if (!is_wp_error($wp_error)) {
-        return;
-    }
+    if (!is_wp_error($wp_error)) return;
 
     $message = $wp_error->get_error_message();
     $data    = $wp_error->get_error_data();
     if (!is_array($data)) {
         $data = array('raw_data' => $data);
     }
-
     wpsmtp_add_log('error', $message, $data);
 });
 
 /**
- * Apply SMTP settings
- * Use try/catch so even weird PHPMailer issues won't fatal the site.
+ * Apply SMTP settings (safe)
  */
 add_action('phpmailer_init', function ($phpmailer) {
     try {
         $s = wpsmtp_get_settings();
 
-        if (empty($s['enabled'])) {
-            return;
-        }
+        if (empty($s['enabled'])) return;
 
         if (empty($s['host']) || empty($s['username']) || empty($s['password'])) {
             wpsmtp_add_log('warning', 'SMTP not fully configured (missing host/username/password).');
@@ -126,7 +117,7 @@ add_action('phpmailer_init', function ($phpmailer) {
         $phpmailer->isSMTP();
         $phpmailer->Host       = $s['host'];
         $phpmailer->SMTPAuth   = true;
-        $phpmailer->Port       = (int) $s['port'];
+        $phpmailer->Port       = (int)$s['port'];
         $phpmailer->Username   = $s['username'];
         $phpmailer->Password   = $s['password'];
         $phpmailer->SMTPSecure = ($s['encryption'] === 'none') ? '' : $s['encryption'];
@@ -142,10 +133,16 @@ add_action('phpmailer_init', function ($phpmailer) {
             'username'   => $s['username'] ? '[set]' : '[empty]',
         ));
     } catch (Exception $e) {
-        // If PHPMailer or something else throws, we catch and log instead of crashing the site
         wpsmtp_add_log('error', 'Exception in phpmailer_init: ' . $e->getMessage());
     }
 });
+
+/**
+ * HTML mail helper
+ */
+function wpsmtp_set_html_mail_type() {
+    return 'text/html';
+}
 
 /**
  * Admin menu
@@ -161,12 +158,41 @@ add_action('admin_menu', function () {
 });
 
 /**
- * Admin Page — modern UI + logs + show password
+ * AJAX handler for sending email (no form submit)
+ */
+add_action('wp_ajax_wpsmtp_send_email', 'wpsmtp_send_email_ajax');
+function wpsmtp_send_email_ajax() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Permission denied.');
+    }
+
+    $to      = isset($_POST['to']) ? sanitize_email($_POST['to']) : '';
+    $subject = isset($_POST['subject']) ? sanitize_text_field($_POST['subject']) : '';
+    $body    = isset($_POST['body']) ? wp_kses_post($_POST['body']) : '';
+
+    if (!$to || !$subject || !$body) {
+        wpsmtp_add_log('error', 'AJAX send failed - missing fields');
+        wp_send_json_error('Please fill To, Subject and Body.');
+    }
+
+    add_filter('wp_mail_content_type', 'wpsmtp_set_html_mail_type');
+    $sent = wp_mail($to, $subject, nl2br($body));
+    remove_filter('wp_mail_content_type', 'wpsmtp_set_html_mail_type');
+
+    if ($sent) {
+        wpsmtp_add_log('info', 'Email sent via AJAX.', array('to' => $to, 'subject' => $subject));
+        wp_send_json_success('Email sent successfully!');
+    } else {
+        wpsmtp_add_log('error', 'AJAX email send failed.', array('to' => $to, 'subject' => $subject));
+        wp_send_json_error('Failed to send email. Check Logs tab.');
+    }
+}
+
+/**
+ * Admin Page — settings + composer + logs
  */
 function wpsmtp_admin_page() {
-    if (!current_user_can('manage_options')) {
-        return;
-    }
+    if (!current_user_can('manage_options')) return;
 
     $s       = wpsmtp_get_settings();
     $success = '';
@@ -184,7 +210,7 @@ function wpsmtp_admin_page() {
         check_admin_referer('wpsmtp_save');
 
         $host       = isset($_POST['host']) ? sanitize_text_field($_POST['host']) : '';
-        $port       = isset($_POST['port']) ? (int) $_POST['port'] : 0;
+        $port       = isset($_POST['port']) ? (int)$_POST['port'] : 0;
         $encryption = isset($_POST['encryption']) ? sanitize_text_field($_POST['encryption']) : 'tls';
 
         if ($port <= 0) {
@@ -212,44 +238,12 @@ function wpsmtp_admin_page() {
         }
     }
 
-    /* SEND EMAIL */
-    if (isset($_POST['wpsmtp_send'])) {
-        check_admin_referer('wpsmtp_send');
-
-        $to      = isset($_POST['mail_to']) ? sanitize_email($_POST['mail_to']) : '';
-        $subject = isset($_POST['mail_subject']) ? sanitize_text_field($_POST['mail_subject']) : '';
-        $body    = isset($_POST['mail_body']) ? wp_kses_post($_POST['mail_body']) : '';
-
-        if (!$to || !$subject || !$body) {
-            $error = 'Please fill all fields before sending.';
-        } else {
-            add_filter('wp_mail_content_type', 'wpsmtp_set_html_mail_type');
-            $sent = wp_mail($to, $subject, nl2br($body));
-            remove_filter('wp_mail_content_type', 'wpsmtp_set_html_mail_type');
-
-            if ($sent) {
-                $success = 'Email sent to <b>' . esc_html($to) . '</b>.';
-                wpsmtp_add_log('info', 'Email sent successfully from composer.', array(
-                    'to'      => $to,
-                    'subject' => $subject,
-                ));
-            } else {
-                $error = 'Email failed. Check Logs below for more details.';
-                wpsmtp_add_log('error', 'Email sending failed from composer.', array(
-                    'to'      => $to,
-                    'subject' => $subject,
-                ));
-            }
-        }
-    }
-
     $logs = wpsmtp_get_logs();
-
     ?>
     <div class="wrap wpsmtp-wrap">
         <h1 style="font-size: 28px; margin-bottom: 10px;">WP SMTP & Mailer</h1>
         <p style="color:#666; margin-bottom: 30px;">
-            Configure SMTP, send emails, and inspect detailed logs directly from WordPress.
+            Configure SMTP, send emails (AJAX), and inspect logs directly from WordPress.
         </p>
 
         <style>
@@ -369,10 +363,9 @@ function wpsmtp_admin_page() {
         <?php endif; ?>
 
         <div class="wpsmtp-grid">
-
-            <!-- LEFT SIDE: Settings + Composer -->
+            <!-- LEFT: SETTINGS + COMPOSER -->
             <div>
-                <!-- SMTP SETTINGS CARD -->
+                <!-- SMTP SETTINGS -->
                 <div class="wpsmtp-card" style="margin-bottom: 24px;">
                     <h2>SMTP Settings</h2>
                     <form method="post">
@@ -421,23 +414,21 @@ function wpsmtp_admin_page() {
                     </form>
                 </div>
 
-                <!-- EMAIL COMPOSER CARD -->
+                <!-- EMAIL COMPOSER (AJAX, NO SUBMIT) -->
                 <div class="wpsmtp-card">
                     <h2>Email Composer</h2>
-                    <form method="post">
-                        <?php wp_nonce_field('wpsmtp_send'); ?>
 
-                        <input class="wpsmtp-input" name="mail_to" type="email" placeholder="Recipient email">
-                        <input class="wpsmtp-input" name="mail_subject" placeholder="Subject">
+                    <input class="wpsmtp-input" id="wpsmtp_mail_to" type="email" placeholder="Recipient email">
+                    <input class="wpsmtp-input" id="wpsmtp_mail_subject" placeholder="Subject">
+                    <textarea class="wpsmtp-textarea" id="wpsmtp_mail_body" placeholder="Write your message...&#10;Supports basic HTML such as &lt;br&gt;, &lt;strong&gt;, &lt;a&gt;, etc."></textarea>
 
-                        <textarea class="wpsmtp-textarea" name="mail_body" placeholder="Write your message...&#10;Supports basic HTML such as &lt;br&gt;, &lt;strong&gt;, &lt;a&gt;, etc."></textarea>
+                    <button type="button" id="wpsmtp_send_btn" class="wpsmtp-btn-secondary">Send Email</button>
 
-                        <button class="wpsmtp-btn-secondary" name="wpsmtp_send">Send Email</button>
-                    </form>
+                    <div id="wpsmtp_send_status" style="margin-top:12px;font-size:13px;"></div>
                 </div>
             </div>
 
-            <!-- RIGHT SIDE: LOGS -->
+            <!-- RIGHT: LOGS -->
             <div class="wpsmtp-card">
                 <h2 style="display:flex; align-items:center; justify-content:space-between;">
                     <span>Logs & Debug</span>
@@ -479,7 +470,7 @@ function wpsmtp_admin_page() {
                                             $parts = array();
                                             foreach ($log['context'] as $k => $v) {
                                                 if (is_scalar($v)) {
-                                                    $parts[] = esc_html($k) . ': ' . esc_html((string) $v);
+                                                    $parts[] = esc_html($k) . ': ' . esc_html((string)$v);
                                                 }
                                             }
                                             echo implode(' | ', $parts);
@@ -502,6 +493,7 @@ function wpsmtp_admin_page() {
 
         <script>
         document.addEventListener("DOMContentLoaded", function () {
+            // Show / hide password
             var passInput = document.getElementById("wpsmtp-pass");
             var toggleBtn = document.getElementById("wpsmtp-toggle-pass");
 
@@ -516,15 +508,54 @@ function wpsmtp_admin_page() {
                     }
                 });
             }
+
+            // AJAX send email
+            var sendBtn   = document.getElementById("wpsmtp_send_btn");
+            var statusBox = document.getElementById("wpsmtp_send_status");
+
+            if (sendBtn && typeof ajaxurl !== "undefined") {
+                sendBtn.addEventListener("click", function () {
+                    var to      = document.getElementById("wpsmtp_mail_to").value;
+                    var subject = document.getElementById("wpsmtp_mail_subject").value;
+                    var body    = document.getElementById("wpsmtp_mail_body").value;
+
+                    if (!to || !subject || !body) {
+                        statusBox.innerHTML = "Please fill all fields.";
+                        statusBox.style.color = "#d93025";
+                        return;
+                    }
+
+                    statusBox.innerHTML = "Sending...";
+                    statusBox.style.color = "#555";
+
+                    var formData = new FormData();
+                    formData.append("action", "wpsmtp_send_email");
+                    formData.append("to", to);
+                    formData.append("subject", subject);
+                    formData.append("body", body);
+
+                    fetch(ajaxurl, {
+                        method: "POST",
+                        body: formData
+                    })
+                    .then(function (res) { return res.json(); })
+                    .then(function (data) {
+                        if (data.success) {
+                            statusBox.innerHTML = data.data;
+                            statusBox.style.color = "#2daa4a";
+                        } else {
+                            statusBox.innerHTML = data.data || "Error sending email.";
+                            statusBox.style.color = "#d93025";
+                        }
+                    })
+                    .catch(function () {
+                        statusBox.innerHTML = "Connection error.";
+                        statusBox.style.color = "#d93025";
+                    });
+                });
+            }
         });
         </script>
     </div>
     <?php
-}
-
-/**
- * Helper: set HTML mail type
- */
-function wpsmtp_set_html_mail_type() {
-    return 'text/html';
 }
