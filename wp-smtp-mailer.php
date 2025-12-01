@@ -1,10 +1,9 @@
 <?php
 /**
  * Plugin Name: WP SMTP & Mailer
- * Description: Configure SMTP, send custom emails with AJAX, and view logs in a modern UI.
- * Version: 1.3.0
+ * Description: Configure SMTP, send custom emails with AJAX, and view compact logs in a modern UI.
+ * Version: 1.5.0
  * Author: Storz
- * Author URI: https://storz.co.il
  */
 
 if (!defined('ABSPATH')) exit;
@@ -13,7 +12,7 @@ define('WPSMTP_OPTION_KEY', 'wpsmtp_settings');
 define('WPSMTP_LOG_OPTION_KEY', 'wpsmtp_logs');
 
 /**
- * Disable update check for this plugin
+ * Disable update checks for this plugin
  */
 add_filter('site_transient_update_plugins', function ($value) {
     if (!is_object($value)) {
@@ -80,7 +79,7 @@ function wpsmtp_get_logs() {
     if (!is_array($logs)) {
         $logs = array();
     }
-    return array_reverse($logs);
+    return array_reverse($logs); // newest first
 }
 
 function wpsmtp_clear_logs() {
@@ -146,7 +145,7 @@ function wpsmtp_set_html_mail_type() {
 }
 
 /**
- * Admin menu
+ * Admin menu (Settings → WP SMTP & Mailer)
  */
 add_action('admin_menu', function () {
     add_options_page(
@@ -159,7 +158,61 @@ add_action('admin_menu', function () {
 });
 
 /**
- * AJAX handler for sending email (no form submit)
+ * Dashboard widget with last logs
+ */
+add_action('wp_dashboard_setup', 'wpsmtp_add_dashboard_widget');
+
+function wpsmtp_add_dashboard_widget() {
+    wp_add_dashboard_widget(
+        'wpsmtp_dashboard_widget',
+        'WP SMTP & Mailer Logs',
+        'wpsmtp_dashboard_widget_display'
+    );
+}
+
+function wpsmtp_dashboard_widget_display() {
+    if (!current_user_can('manage_options')) {
+        echo '<p>No permission.</p>';
+        return;
+    }
+
+    $logs = wpsmtp_get_logs();
+    $logs = array_slice($logs, 0, 5); // last 5
+
+    if (empty($logs)) {
+        echo '<p style="font-size:12px;color:#777;">No log entries yet.</p>';
+        return;
+    }
+
+    echo '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+    echo '<thead><tr>';
+    echo '<th style="text-align:left;border-bottom:1px solid #eee;padding:3px 2px;width:35%;">Time</th>';
+    echo '<th style="text-align:left;border-bottom:1px solid #eee;padding:3px 2px;width:15%;">Type</th>';
+    echo '<th style="text-align:left;border-bottom:1px solid #eee;padding:3px 2px;">Message</th>';
+    echo '</tr></thead><tbody>';
+
+    foreach ($logs as $log) {
+        $type  = isset($log['type']) ? $log['type'] : 'info';
+        $time  = isset($log['time']) ? $log['time'] : '';
+        $msg   = isset($log['message']) ? $log['message'] : '';
+
+        $color = '#1a73e8';
+        if ($type === 'warning') $color = '#e37400';
+        if ($type === 'error')   $color = '#d93025';
+
+        echo '<tr>';
+        echo '<td style="border-bottom:1px solid #f1f1f1;padding:3px 2px;color:#666;white-space:nowrap;">' . esc_html($time) . '</td>';
+        echo '<td style="border-bottom:1px solid #f1f1f1;padding:3px 2px;color:' . esc_attr($color) . ';">' . esc_html(ucfirst($type)) . '</td>';
+        echo '<td style="border-bottom:1px solid #f1f1f1;padding:3px 2px;">' . esc_html($msg) . '</td>';
+        echo '</tr>';
+    }
+
+    echo '</tbody></table>';
+    echo '<p style="margin-top:6px;font-size:11px;color:#777;">Full logs in Settings → WP SMTP & Mailer.</p>';
+}
+
+/**
+ * AJAX handler: send email (from composer)
  */
 add_action('wp_ajax_wpsmtp_send_email', 'wpsmtp_send_email_ajax');
 function wpsmtp_send_email_ajax() {
@@ -181,16 +234,16 @@ function wpsmtp_send_email_ajax() {
     remove_filter('wp_mail_content_type', 'wpsmtp_set_html_mail_type');
 
     if ($sent) {
-        wpsmtp_add_log('info', 'Email sent via AJAX.', array('to' => $to, 'subject' => $subject));
+        wpsmtp_add_log('info', 'Email sent via AJAX (immediate).', array('to' => $to, 'subject' => $subject));
         wp_send_json_success('Email sent successfully!');
     } else {
         wpsmtp_add_log('error', 'AJAX email send failed.', array('to' => $to, 'subject' => $subject));
-        wp_send_json_error('Failed to send email. Check Logs tab.');
+        wp_send_json_error('Failed to send email. Check Logs.');
     }
 }
 
 /**
- * Admin Page — settings + composer + logs
+ * Admin Page
  */
 function wpsmtp_admin_page() {
     if (!current_user_can('manage_options')) return;
@@ -244,7 +297,7 @@ function wpsmtp_admin_page() {
     <div class="wrap wpsmtp-wrap">
         <h1 style="font-size: 28px; margin-bottom: 10px;">WP SMTP & Mailer</h1>
         <p style="color:#666; margin-bottom: 30px;">
-            Configure SMTP, send emails (AJAX), and inspect logs directly from WordPress.
+            Configure SMTP, send emails (AJAX), and inspect compact logs.
         </p>
 
         <style>
@@ -330,29 +383,38 @@ function wpsmtp_admin_page() {
             }
             .wpsmtp-success { background: #e5f8e8; border-left: 4px solid #2daa4a; }
             .wpsmtp-error { background: #ffeaea; border-left: 4px solid #d93025; }
+
+            /* COMPACT LOGS UI */
             .wpsmtp-logs-table {
                 width: 100%;
                 border-collapse: collapse;
-                font-size: 12px;
+                font-size: 11px;
             }
             .wpsmtp-logs-table th,
             .wpsmtp-logs-table td {
                 border-bottom: 1px solid #eee;
-                padding: 6px 4px;
+                padding: 4px 3px;
                 vertical-align: top;
             }
             .wpsmtp-logs-table th {
                 text-align: left;
                 font-weight: 600;
+                color: #444;
+                font-size: 11px;
             }
-            .wpsmtp-log-type-info { color: #1a73e8; }
-            .wpsmtp-log-type-warning { color: #e37400; }
-            .wpsmtp-log-type-error { color: #d93025; }
-            .wpsmtp-log-time { white-space: nowrap; color:#666; }
+            .wpsmtp-log-time {
+                white-space: nowrap;
+                color: #666;
+                font-size: 10.5px;
+            }
             .wpsmtp-context {
                 color:#777;
-                font-size:11px;
+                font-size:10px;
+                margin-top: 2px;
             }
+            .wpsmtp-log-type-info { color: #1a73e8; font-size:11px; }
+            .wpsmtp-log-type-warning { color: #e37400; font-size:11px; }
+            .wpsmtp-log-type-error { color: #d93025; font-size:11px; }
         </style>
 
         <?php if ($success): ?>
@@ -415,7 +477,7 @@ function wpsmtp_admin_page() {
                     </form>
                 </div>
 
-                <!-- EMAIL COMPOSER (AJAX, NO SUBMIT) -->
+                <!-- EMAIL COMPOSER (AJAX) -->
                 <div class="wpsmtp-card">
                     <h2>Email Composer</h2>
 
@@ -429,10 +491,10 @@ function wpsmtp_admin_page() {
                 </div>
             </div>
 
-            <!-- RIGHT: LOGS -->
+            <!-- RIGHT: COMPACT LOGS -->
             <div class="wpsmtp-card">
                 <h2 style="display:flex; align-items:center; justify-content:space-between;">
-                    <span>Logs & Debug</span>
+                    <span>Logs</span>
                     <form method="post" style="margin:0;">
                         <?php wp_nonce_field('wpsmtp_clear_logs'); ?>
                         <button type="submit" name="wpsmtp_clear_logs" class="wpsmtp-btn-danger">Clear Logs</button>
@@ -445,13 +507,13 @@ function wpsmtp_admin_page() {
                     <table class="wpsmtp-logs-table">
                         <thead>
                         <tr>
-                            <th style="width:32%;">Time</th>
-                            <th style="width:15%;">Type</th>
+                            <th style="width:28%;">Time</th>
+                            <th style="width:12%;">Type</th>
                             <th>Message</th>
                         </tr>
                         </thead>
                         <tbody>
-                        <?php foreach (array_slice($logs, 0, 25) as $log): ?>
+                        <?php foreach (array_slice($logs, 0, 35) as $log): ?>
                             <tr>
                                 <td class="wpsmtp-log-time"><?php echo esc_html($log['time']); ?></td>
                                 <td>
@@ -465,6 +527,7 @@ function wpsmtp_admin_page() {
                                 </td>
                                 <td>
                                     <?php echo esc_html($log['message']); ?>
+
                                     <?php if (!empty($log['context']) && is_array($log['context'])): ?>
                                         <div class="wpsmtp-context">
                                             <?php
@@ -474,7 +537,7 @@ function wpsmtp_admin_page() {
                                                     $parts[] = esc_html($k) . ': ' . esc_html((string)$v);
                                                 }
                                             }
-                                            echo implode(' | ', $parts);
+                                            echo implode(' • ', $parts);
                                             ?>
                                         </div>
                                     <?php endif; ?>
@@ -486,8 +549,7 @@ function wpsmtp_admin_page() {
                 <?php endif; ?>
 
                 <p style="margin-top:10px; font-size:12px; color:#888;">
-                    Tip: If sending fails, check the latest <strong>Error</strong> rows here for exact reasons
-                    (auth, host, port, encryption, etc.).
+                    Tip: Check <strong>Error</strong> rows for SMTP connection/auth issues (host, port, password, etc.).
                 </p>
             </div>
         </div>
