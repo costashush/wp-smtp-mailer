@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP SMTP & Mailer
  * Description: Configure SMTP via UI and send custom emails from WordPress using a built-in email editor.
- * Version: 1.0.0
+ * Version: 1.2.0
  * Author: Storz
  */
 
