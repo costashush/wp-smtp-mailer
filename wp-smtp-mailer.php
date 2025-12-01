@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: WP SMTP & Mailer
- * Description: Configure SMTP and send custom emails inside WordPress using a clean modern UI, with error logs.
- * Version: 1.1.0
+ * Description: Configure SMTP, send custom emails, and view logs in a modern UI.
+ * Version: 1.2.0
  * Author: Storz
  */
 
@@ -28,7 +28,7 @@ add_filter('site_transient_update_plugins', function ($value) {
  * Default settings
  */
 function wpsmtp_default_settings() {
-    return [
+    return array(
         'enabled'    => 1,
         'host'       => '',
         'port'       => 587,
@@ -37,16 +37,16 @@ function wpsmtp_default_settings() {
         'password'   => '',
         'from_email' => '',
         'from_name'  => get_bloginfo('name'),
-    ];
+    );
 }
 
 /**
  * Get merged settings
  */
 function wpsmtp_get_settings() {
-    $saved = get_option(WPSMTP_OPTION_KEY, []);
+    $saved = get_option(WPSMTP_OPTION_KEY, array());
     if (!is_array($saved)) {
-        $saved = [];
+        $saved = array();
     }
     return array_merge(wpsmtp_default_settings(), $saved);
 }
@@ -55,18 +55,18 @@ function wpsmtp_get_settings() {
  * LOGGING
  * Store up to 50 recent entries in options table
  */
-function wpsmtp_add_log($type, $message, $context = []) {
-    $logs = get_option(WPSMTP_LOG_OPTION_KEY, []);
+function wpsmtp_add_log($type, $message, $context = array()) {
+    $logs = get_option(WPSMTP_LOG_OPTION_KEY, array());
     if (!is_array($logs)) {
-        $logs = [];
+        $logs = array();
     }
 
-    $logs[] = [
+    $logs[] = array(
         'time'    => current_time('mysql'),
         'type'    => $type,
         'message' => $message,
-        'context' => is_array($context) ? $context : [],
-    ];
+        'context' => is_array($context) ? $context : array(),
+    );
 
     // Keep only last 50 entries
     if (count($logs) > 50) {
@@ -77,8 +77,10 @@ function wpsmtp_add_log($type, $message, $context = []) {
 }
 
 function wpsmtp_get_logs() {
-    $logs = get_option(WPSMTP_LOG_OPTION_KEY, []);
-    if (!is_array($logs)) $logs = [];
+    $logs = get_option(WPSMTP_LOG_OPTION_KEY, array());
+    if (!is_array($logs)) {
+        $logs = array();
+    }
     // newest first
     return array_reverse($logs);
 }
@@ -88,15 +90,17 @@ function wpsmtp_clear_logs() {
 }
 
 /**
- * Hook into wp_mail_failed for detailed errors
+ * Catch wp_mail_failed errors and log them
  */
 add_action('wp_mail_failed', function ($wp_error) {
-    if (!is_wp_error($wp_error)) return;
+    if (!is_wp_error($wp_error)) {
+        return;
+    }
 
     $message = $wp_error->get_error_message();
     $data    = $wp_error->get_error_data();
     if (!is_array($data)) {
-        $data = ['raw_data' => $data];
+        $data = array('raw_data' => $data);
     }
 
     wpsmtp_add_log('error', $message, $data);
@@ -104,37 +108,43 @@ add_action('wp_mail_failed', function ($wp_error) {
 
 /**
  * Apply SMTP settings
+ * Use try/catch so even weird PHPMailer issues won't fatal the site.
  */
 add_action('phpmailer_init', function ($phpmailer) {
-    $s = wpsmtp_get_settings();
+    try {
+        $s = wpsmtp_get_settings();
 
-    if (empty($s['enabled'])) {
-        return;
+        if (empty($s['enabled'])) {
+            return;
+        }
+
+        if (empty($s['host']) || empty($s['username']) || empty($s['password'])) {
+            wpsmtp_add_log('warning', 'SMTP not fully configured (missing host/username/password).');
+            return;
+        }
+
+        $phpmailer->isSMTP();
+        $phpmailer->Host       = $s['host'];
+        $phpmailer->SMTPAuth   = true;
+        $phpmailer->Port       = (int) $s['port'];
+        $phpmailer->Username   = $s['username'];
+        $phpmailer->Password   = $s['password'];
+        $phpmailer->SMTPSecure = ($s['encryption'] === 'none') ? '' : $s['encryption'];
+
+        if (!empty($s['from_email'])) {
+            $phpmailer->setFrom($s['from_email'], $s['from_name']);
+        }
+
+        wpsmtp_add_log('info', 'SMTP configuration applied for outgoing email.', array(
+            'host'       => $s['host'],
+            'port'       => $s['port'],
+            'encryption' => $s['encryption'],
+            'username'   => $s['username'] ? '[set]' : '[empty]',
+        ));
+    } catch (Exception $e) {
+        // If PHPMailer or something else throws, we catch and log instead of crashing the site
+        wpsmtp_add_log('error', 'Exception in phpmailer_init: ' . $e->getMessage());
     }
-
-    if (empty($s['host']) || empty($s['username']) || empty($s['password'])) {
-        wpsmtp_add_log('warning', 'SMTP not fully configured (missing host/username/password).');
-        return;
-    }
-
-    $phpmailer->isSMTP();
-    $phpmailer->Host       = $s['host'];
-    $phpmailer->SMTPAuth   = true;
-    $phpmailer->Port       = (int) $s['port'];
-    $phpmailer->Username   = $s['username'];
-    $phpmailer->Password   = $s['password'];
-    $phpmailer->SMTPSecure = ($s['encryption'] === 'none') ? '' : $s['encryption'];
-
-    if (!empty($s['from_email'])) {
-        $phpmailer->setFrom($s['from_email'], $s['from_name']);
-    }
-
-    wpsmtp_add_log('info', 'SMTP configuration applied for outgoing email.', [
-        'host'       => $s['host'],
-        'port'       => $s['port'],
-        'encryption' => $s['encryption'],
-        'username'   => $s['username'] ? '[set]' : '[empty]',
-    ]);
 });
 
 /**
@@ -151,7 +161,7 @@ add_action('admin_menu', function () {
 });
 
 /**
- * Admin Page — modern UI + logs
+ * Admin Page — modern UI + logs + show password
  */
 function wpsmtp_admin_page() {
     if (!current_user_can('manage_options')) {
@@ -173,32 +183,32 @@ function wpsmtp_admin_page() {
     if (isset($_POST['wpsmtp_save'])) {
         check_admin_referer('wpsmtp_save');
 
-        $host       = sanitize_text_field($_POST['host'] ?? '');
-        $port       = (int) ($_POST['port'] ?? 0);
-        $encryption = sanitize_text_field($_POST['encryption'] ?? 'tls');
+        $host       = isset($_POST['host']) ? sanitize_text_field($_POST['host']) : '';
+        $port       = isset($_POST['port']) ? (int) $_POST['port'] : 0;
+        $encryption = isset($_POST['encryption']) ? sanitize_text_field($_POST['encryption']) : 'tls';
 
         if ($port <= 0) {
             $error = 'Port must be a positive number.';
-        } elseif (!in_array($encryption, ['none', 'ssl', 'tls'], true)) {
+        } elseif (!in_array($encryption, array('none', 'ssl', 'tls'), true)) {
             $error = 'Invalid encryption type.';
         } else {
             $s['enabled']    = isset($_POST['enabled']) ? 1 : 0;
             $s['host']       = $host;
             $s['port']       = $port;
             $s['encryption'] = $encryption;
-            $s['username']   = sanitize_text_field($_POST['username'] ?? '');
-            $s['password']   = sanitize_text_field($_POST['password'] ?? '');
-            $s['from_email'] = sanitize_email($_POST['from_email'] ?? '');
-            $s['from_name']  = sanitize_text_field($_POST['from_name'] ?? '');
+            $s['username']   = isset($_POST['username']) ? sanitize_text_field($_POST['username']) : '';
+            $s['password']   = isset($_POST['password']) ? sanitize_text_field($_POST['password']) : '';
+            $s['from_email'] = isset($_POST['from_email']) ? sanitize_email($_POST['from_email']) : '';
+            $s['from_name']  = isset($_POST['from_name']) ? sanitize_text_field($_POST['from_name']) : '';
 
             update_option(WPSMTP_OPTION_KEY, $s);
             $success = 'SMTP settings saved.';
-            wpsmtp_add_log('info', 'SMTP settings updated via admin UI.', [
+            wpsmtp_add_log('info', 'SMTP settings updated via admin UI.', array(
                 'host'       => $s['host'],
                 'port'       => $s['port'],
                 'encryption' => $s['encryption'],
                 'enabled'    => $s['enabled'],
-            ]);
+            ));
         }
     }
 
@@ -206,29 +216,29 @@ function wpsmtp_admin_page() {
     if (isset($_POST['wpsmtp_send'])) {
         check_admin_referer('wpsmtp_send');
 
-        $to      = sanitize_email($_POST['mail_to'] ?? '');
-        $subject = sanitize_text_field($_POST['mail_subject'] ?? '');
-        $body    = wp_kses_post($_POST['mail_body'] ?? '');
+        $to      = isset($_POST['mail_to']) ? sanitize_email($_POST['mail_to']) : '';
+        $subject = isset($_POST['mail_subject']) ? sanitize_text_field($_POST['mail_subject']) : '';
+        $body    = isset($_POST['mail_body']) ? wp_kses_post($_POST['mail_body']) : '';
 
         if (!$to || !$subject || !$body) {
             $error = 'Please fill all fields before sending.';
         } else {
-            add_filter('wp_mail_content_type', fn() => 'text/html');
+            add_filter('wp_mail_content_type', 'wpsmtp_set_html_mail_type');
             $sent = wp_mail($to, $subject, nl2br($body));
-            add_filter('wp_mail_content_type', fn() => 'text/plain');
+            remove_filter('wp_mail_content_type', 'wpsmtp_set_html_mail_type');
 
             if ($sent) {
-                $success = "Email sent to <b>" . esc_html($to) . "</b>.";
-                wpsmtp_add_log('info', 'Email sent successfully from composer.', [
+                $success = 'Email sent to <b>' . esc_html($to) . '</b>.';
+                wpsmtp_add_log('info', 'Email sent successfully from composer.', array(
                     'to'      => $to,
                     'subject' => $subject,
-                ]);
+                ));
             } else {
-                $error = "Email failed. Check Logs below for more details.";
-                wpsmtp_add_log('error', 'Email sending failed from composer.', [
+                $error = 'Email failed. Check Logs below for more details.';
+                wpsmtp_add_log('error', 'Email sending failed from composer.', array(
                     'to'      => $to,
                     'subject' => $subject,
-                ]);
+                ));
             }
         }
     }
@@ -251,7 +261,6 @@ function wpsmtp_admin_page() {
             @media(max-width: 1100px) {
                 .wpsmtp-grid { grid-template-columns: 1fr; }
             }
-
             .wpsmtp-card {
                 background: #fff;
                 border-radius: 12px;
@@ -263,7 +272,6 @@ function wpsmtp_admin_page() {
             .wpsmtp-card:hover {
                 box-shadow: 0 8px 20px rgba(0,0,0,0.09);
             }
-
             .wpsmtp-card h2 {
                 margin-top: 0;
                 font-size: 19px;
@@ -271,7 +279,6 @@ function wpsmtp_admin_page() {
                 border-bottom: 1px solid #eee;
                 margin-bottom: 16px;
             }
-
             .wpsmtp-input {
                 width: 100%;
                 padding: 9px 12px;
@@ -281,7 +288,6 @@ function wpsmtp_admin_page() {
                 margin-bottom: 12px;
                 font-size: 13px;
             }
-
             .wpsmtp-textarea {
                 width: 100%;
                 min-height: 170px;
@@ -291,7 +297,6 @@ function wpsmtp_admin_page() {
                 font-size: 13px;
                 resize: vertical;
             }
-
             .wpsmtp-btn-primary {
                 background: #3c6df0;
                 border: none;
@@ -322,7 +327,6 @@ function wpsmtp_admin_page() {
                 font-size: 12px;
                 cursor: pointer;
             }
-
             .wpsmtp-notice {
                 padding: 11px 14px;
                 border-radius: 7px;
@@ -331,7 +335,6 @@ function wpsmtp_admin_page() {
             }
             .wpsmtp-success { background: #e5f8e8; border-left: 4px solid #2daa4a; }
             .wpsmtp-error { background: #ffeaea; border-left: 4px solid #d93025; }
-
             .wpsmtp-logs-table {
                 width: 100%;
                 border-collapse: collapse;
@@ -390,7 +393,26 @@ function wpsmtp_admin_page() {
                         </select>
 
                         <input class="wpsmtp-input" name="username" placeholder="SMTP Username" value="<?php echo esc_attr($s['username']); ?>">
-                        <input class="wpsmtp-input" name="password" type="password" placeholder="SMTP Password / App Password" value="<?php echo esc_attr($s['password']); ?>">
+
+                        <!-- PASSWORD WITH SHOW/HIDE -->
+                        <div style="position: relative;">
+                            <input class="wpsmtp-input"
+                                   name="password"
+                                   type="password"
+                                   id="wpsmtp-pass"
+                                   placeholder="SMTP Password / App Password"
+                                   value="<?php echo esc_attr($s['password']); ?>">
+                            <span id="wpsmtp-toggle-pass"
+                                  style="
+                                      position:absolute;
+                                      right:14px;
+                                      top:50%;
+                                      transform:translateY(-50%);
+                                      cursor:pointer;
+                                      font-size:14px;
+                                      color:#555;
+                                  ">👁️</span>
+                        </div>
 
                         <input class="wpsmtp-input" name="from_email" placeholder="From Email" value="<?php echo esc_attr($s['from_email']); ?>">
                         <input class="wpsmtp-input" name="from_name" placeholder="From Name" value="<?php echo esc_attr($s['from_name']); ?>">
@@ -442,7 +464,7 @@ function wpsmtp_admin_page() {
                                 <td class="wpsmtp-log-time"><?php echo esc_html($log['time']); ?></td>
                                 <td>
                                     <?php
-                                    $type = isset($log['type']) ? $log['type'] : 'info';
+                                    $type  = isset($log['type']) ? $log['type'] : 'info';
                                     $class = 'wpsmtp-log-type-' . $type;
                                     ?>
                                     <span class="<?php echo esc_attr($class); ?>">
@@ -454,10 +476,10 @@ function wpsmtp_admin_page() {
                                     <?php if (!empty($log['context']) && is_array($log['context'])): ?>
                                         <div class="wpsmtp-context">
                                             <?php
-                                            $parts = [];
+                                            $parts = array();
                                             foreach ($log['context'] as $k => $v) {
                                                 if (is_scalar($v)) {
-                                                    $parts[] = esc_html($k) . ': ' . esc_html((string)$v);
+                                                    $parts[] = esc_html($k) . ': ' . esc_html((string) $v);
                                                 }
                                             }
                                             echo implode(' | ', $parts);
@@ -472,10 +494,37 @@ function wpsmtp_admin_page() {
                 <?php endif; ?>
 
                 <p style="margin-top:10px; font-size:12px; color:#888;">
-                    Tip: If sending fails, check the latest <strong>Error</strong> rows here for exact reasons (auth, host, port, etc.).
+                    Tip: If sending fails, check the latest <strong>Error</strong> rows here for exact reasons
+                    (auth, host, port, encryption, etc.).
                 </p>
             </div>
         </div>
+
+        <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            var passInput = document.getElementById("wpsmtp-pass");
+            var toggleBtn = document.getElementById("wpsmtp-toggle-pass");
+
+            if (passInput && toggleBtn) {
+                toggleBtn.addEventListener("click", function () {
+                    if (passInput.type === "password") {
+                        passInput.type = "text";
+                        toggleBtn.textContent = "🙈";
+                    } else {
+                        passInput.type = "password";
+                        toggleBtn.textContent = "👁️";
+                    }
+                });
+            }
+        });
+        </script>
     </div>
     <?php
+}
+
+/**
+ * Helper: set HTML mail type
+ */
+function wpsmtp_set_html_mail_type() {
+    return 'text/html';
 }
