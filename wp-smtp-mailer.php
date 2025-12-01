@@ -4,6 +4,7 @@
  * Description: Configure SMTP, send custom emails with AJAX, and view logs in a modern UI.
  * Version: 1.3.0
  * Author: Storz
+ * Author URI: https://storz.co.il
  */
 
 if (!defined('ABSPATH')) exit;
