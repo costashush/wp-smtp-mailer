@@ -11,6 +11,16 @@ if (!defined('ABSPATH')) exit;
 define('WPSMTP_OPTION_KEY', 'wpsmtp_settings');
 
 /**
+ * Disable update checks for this plugin
+ */
+add_filter('site_transient_update_plugins', function ($value) {
+    if (isset($value->response['wp-smtp-mailer/wp-smtp-mailer.php'])) {
+        unset($value->response['wp-smtp-mailer/wp-smtp-mailer.php']);
+    }
+    return $value;
+});
+
+/**
  * Default settings
  */
 function wpsmtp_default_settings() {
@@ -71,15 +81,15 @@ add_action('admin_menu', function () {
 });
 
 /**
- * Admin page
+ * Admin page UI
  */
 function wpsmtp_admin_page() {
     if (!current_user_can('manage_options')) return;
 
-    $s            = wpsmtp_get_settings();
-    $save_msg     = '';
-    $mail_msg     = '';
-    $mail_class   = '';
+    $s          = wpsmtp_get_settings();
+    $save_msg   = '';
+    $mail_msg   = '';
+    $mail_class = '';
 
     /* SAVE SETTINGS */
     if (isset($_POST['wpsmtp_save_settings'])) {
@@ -147,14 +157,12 @@ function wpsmtp_admin_page() {
                 border-radius: 8px;
                 box-shadow: 0 1px 2px rgba(0,0,0,0.04);
             }
-            .card h2 { margin-top:0; }
             textarea { width:100%; min-height:180px; }
         </style>
 
         <?php if ($save_msg): ?>
             <div class="notice notice-success"><p><?php echo esc_html($save_msg); ?></p></div>
         <?php endif; ?>
-
         <?php if ($mail_msg): ?>
             <div class="notice <?php echo esc_attr($mail_class); ?>"><p><?php echo wp_kses_post($mail_msg); ?></p></div>
         <?php endif; ?>
@@ -164,84 +172,43 @@ function wpsmtp_admin_page() {
             <!-- SMTP SETTINGS -->
             <div class="card">
                 <h2>SMTP Settings</h2>
-
                 <form method="post">
                     <?php wp_nonce_field('wpsmtp_save_settings'); ?>
 
                     <table class="form-table">
-                        <tr>
-                            <th>Enable SMTP</th>
-                            <td><input type="checkbox" name="enabled" value="1" <?php checked($s['enabled'],1); ?>></td>
-                        </tr>
-
-                        <tr>
-                            <th>SMTP Host</th>
-                            <td><input type="text" name="host" class="regular-text" value="<?php echo esc_attr($s['host']); ?>"></td>
-                        </tr>
-
-                        <tr>
-                            <th>Port</th>
-                            <td><input type="number" name="port" class="small-text" value="<?php echo esc_attr($s['port']); ?>"></td>
-                        </tr>
-
+                        <tr><th>Enable SMTP</th><td><input type="checkbox" name="enabled" value="1" <?php checked($s['enabled'],1); ?>></td></tr>
+                        <tr><th>SMTP Host</th><td><input type="text" name="host" class="regular-text" value="<?php echo esc_attr($s['host']); ?>"></td></tr>
+                        <tr><th>Port</th><td><input type="number" name="port" class="small-text" value="<?php echo esc_attr($s['port']); ?>"></td></tr>
                         <tr>
                             <th>Encryption</th>
                             <td>
                                 <select name="encryption">
-                                    <option value="none" <?php selected($s['encryption'], 'none'); ?>>None</option>
-                                    <option value="ssl"  <?php selected($s['encryption'], 'ssl'); ?>>SSL</option>
-                                    <option value="tls"  <?php selected($s['encryption'], 'tls'); ?>>TLS</option>
+                                    <option value="none" <?php selected($s['encryption'],'none'); ?>>None</option>
+                                    <option value="ssl" <?php selected($s['encryption'],'ssl'); ?>>SSL</option>
+                                    <option value="tls" <?php selected($s['encryption'],'tls'); ?>>TLS</option>
                                 </select>
                             </td>
                         </tr>
-
-                        <tr>
-                            <th>Username</th>
-                            <td><input type="text" name="username" class="regular-text" value="<?php echo esc_attr($s['username']); ?>"></td>
-                        </tr>
-
-                        <tr>
-                            <th>Password</th>
-                            <td><input type="password" name="password" class="regular-text" value="<?php echo esc_attr($s['password']); ?>"></td>
-                        </tr>
-
-                        <tr>
-                            <th>From Email</th>
-                            <td><input type="email" name="from_email" class="regular-text" value="<?php echo esc_attr($s['from_email']); ?>"></td>
-                        </tr>
-
-                        <tr>
-                            <th>From Name</th>
-                            <td><input type="text" name="from_name" class="regular-text" value="<?php echo esc_attr($s['from_name']); ?>"></td>
-                        </tr>
+                        <tr><th>Username</th><td><input type="text" name="username" class="regular-text" value="<?php echo esc_attr($s['username']); ?>"></td></tr>
+                        <tr><th>Password</th><td><input type="password" name="password" class="regular-text" value="<?php echo esc_attr($s['password']); ?>"></td></tr>
+                        <tr><th>From Email</th><td><input type="email" name="from_email" class="regular-text" value="<?php echo esc_attr($s['from_email']); ?>"></td></tr>
+                        <tr><th>From Name</th><td><input type="text" name="from_name" class="regular-text" value="<?php echo esc_attr($s['from_name']); ?>"></td></tr>
                     </table>
 
                     <p><button class="button button-primary" name="wpsmtp_save_settings">Save Settings</button></p>
                 </form>
             </div>
 
-            <!-- MAIL EDITOR -->
+            <!-- EMAIL EDITOR -->
             <div class="card">
                 <h2>Email Editor</h2>
-
                 <form method="post">
                     <?php wp_nonce_field('wpsmtp_send_email'); ?>
 
                     <table class="form-table">
-                        <tr>
-                            <th>To</th>
-                            <td><input type="email" name="mail_to" class="regular-text"></td>
-                        </tr>
-
-                        <tr>
-                            <th>Subject</th>
-                            <td><input type="text" name="mail_subject" class="regular-text"></td>
-                        </tr>
-
-                        <tr>
-                            <th>Body</th>
-                            <td><textarea name="mail_body"></textarea></td>
-                        </tr>
+                        <tr><th>To</th><td><input type="email" name="mail_to" class="regular-text"></td></tr>
+                        <tr><th>Subject</th><td><input type="text" name="mail_subject" class="regular-text"></td></tr>
+                        <tr><th>Body</th><td><textarea name="mail_body"></textarea></td></tr>
                     </table>
 
                     <p><button class="button button-secondary" name="wpsmtp_send_email">Send Email</button></p>
@@ -251,5 +218,4 @@ function wpsmtp_admin_page() {
         </div>
     </div>
 
-    <?php
-}
+<?php }
