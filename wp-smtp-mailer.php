@@ -1,15 +1,15 @@
 <?php
 /**
  * Plugin Name: WP SMTP & Mailer
- * Description: Configure SMTP, send custom emails with AJAX, and view compact logs in a modern UI.
- * Version: 1.5.0
+ * Description: Configure SMTP, send custom emails with CC/BCC via AJAX, and view compact logs in admin + dashboard widget.
+ * Version: 1.6.0
  * Author: Storz
  */
 
 if (!defined('ABSPATH')) exit;
 
 define('WPSMTP_OPTION_KEY', 'wpsmtp_settings');
-define('WPSMTP_LOG_OPTION_KEY', 'wpsmtp_logs');
+define('WPSMTP_LOG_OPTION_KEY', 'WPSMTP_LOG_OPTION_KEY');
 
 /**
  * Disable update checks for this plugin
@@ -158,14 +158,14 @@ add_action('admin_menu', function () {
 });
 
 /**
- * Dashboard widget with last logs
+ * Dashboard widget with mini send form + minimal logs
  */
 add_action('wp_dashboard_setup', 'wpsmtp_add_dashboard_widget');
 
 function wpsmtp_add_dashboard_widget() {
     wp_add_dashboard_widget(
         'wpsmtp_dashboard_widget',
-        'WP SMTP & Mailer Logs',
+        'WP SMTP & Mailer',
         'wpsmtp_dashboard_widget_display'
     );
 }
@@ -176,43 +176,113 @@ function wpsmtp_dashboard_widget_display() {
         return;
     }
 
-    $logs = wpsmtp_get_logs();
-    $logs = array_slice($logs, 0, 5); // last 5
+    ?>
+    <div style="font-size:12px;">
+        <strong>Quick Send</strong>
+        <div style="margin-top:6px; margin-bottom:8px;">
+            <input type="email" id="wpsmtp_widget_to" placeholder="To" style="width:100%;padding:5px 7px;margin-bottom:4px;font-size:11px;">
+            <input type="text" id="wpsmtp_widget_subject" placeholder="Subject" style="width:100%;padding:5px 7px;margin-bottom:4px;font-size:11px;">
+            <textarea id="wpsmtp_widget_body" placeholder="Message..." style="width:100%;padding:5px 7px;min-height:60px;font-size:11px;"></textarea>
+            <button type="button" id="wpsmtp_widget_send_btn" style="margin-top:4px;padding:4px 10px;font-size:11px;border-radius:4px;border:none;background:#3c6df0;color:#fff;cursor:pointer;">
+                Send
+            </button>
+            <div id="wpsmtp_widget_status" style="margin-top:4px;font-size:11px;"></div>
+        </div>
 
-    if (empty($logs)) {
-        echo '<p style="font-size:12px;color:#777;">No log entries yet.</p>';
-        return;
-    }
+        <strong>Recent Logs</strong>
+        <?php
+        $logs = wpsmtp_get_logs();
+        $logs = array_slice($logs, 0, 3); // minimal logs: last 3
 
-    echo '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
-    echo '<thead><tr>';
-    echo '<th style="text-align:left;border-bottom:1px solid #eee;padding:3px 2px;width:35%;">Time</th>';
-    echo '<th style="text-align:left;border-bottom:1px solid #eee;padding:3px 2px;width:15%;">Type</th>';
-    echo '<th style="text-align:left;border-bottom:1px solid #eee;padding:3px 2px;">Message</th>';
-    echo '</tr></thead><tbody>';
+        if (empty($logs)) {
+            echo '<p style="font-size:11px;color:#777;margin-top:4px;">No log entries yet.</p>';
+        } else {
+            echo '<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px;">';
+            echo '<thead><tr>';
+            echo '<th style="text-align:left;border-bottom:1px solid #eee;padding:3px 2px;width:35%;">Time</th>';
+            echo '<th style="text-align:left;border-bottom:1px solid #eee;padding:3px 2px;width:15%;">Type</th>';
+            echo '<th style="text-align:left;border-bottom:1px solid #eee;padding:3px 2px;">Message</th>';
+            echo '</tr></thead><tbody>';
 
-    foreach ($logs as $log) {
-        $type  = isset($log['type']) ? $log['type'] : 'info';
-        $time  = isset($log['time']) ? $log['time'] : '';
-        $msg   = isset($log['message']) ? $log['message'] : '';
+            foreach ($logs as $log) {
+                $type  = isset($log['type']) ? $log['type'] : 'info';
+                $time  = isset($log['time']) ? $log['time'] : '';
+                $msg   = isset($log['message']) ? $log['message'] : '';
 
-        $color = '#1a73e8';
-        if ($type === 'warning') $color = '#e37400';
-        if ($type === 'error')   $color = '#d93025';
+                $color = '#1a73e8';
+                if ($type === 'warning') $color = '#e37400';
+                if ($type === 'error')   $color = '#d93025';
 
-        echo '<tr>';
-        echo '<td style="border-bottom:1px solid #f1f1f1;padding:3px 2px;color:#666;white-space:nowrap;">' . esc_html($time) . '</td>';
-        echo '<td style="border-bottom:1px solid #f1f1f1;padding:3px 2px;color:' . esc_attr($color) . ';">' . esc_html(ucfirst($type)) . '</td>';
-        echo '<td style="border-bottom:1px solid #f1f1f1;padding:3px 2px;">' . esc_html($msg) . '</td>';
-        echo '</tr>';
-    }
+                echo '<tr>';
+                echo '<td style="border-bottom:1px solid #f1f1f1;padding:3px 2px;color:#666;white-space:nowrap;">' . esc_html($time) . '</td>';
+                echo '<td style="border-bottom:1px solid #f1f1f1;padding:3px 2px;color:' . esc_attr($color) . ';">' . esc_html(ucfirst($type)) . '</td>';
+                echo '<td style="border-bottom:1px solid #f1f1f1;padding:3px 2px;">' . esc_html($msg) . '</td>';
+                echo '</tr>';
+            }
 
-    echo '</tbody></table>';
-    echo '<p style="margin-top:6px;font-size:11px;color:#777;">Full logs in Settings → WP SMTP & Mailer.</p>';
+            echo '</tbody></table>';
+        }
+
+        echo '<p style="margin-top:4px;font-size:10px;color:#777;">Full logs and advanced composer in Settings → WP SMTP & Mailer.</p>';
+        ?>
+    </div>
+
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+        var btn    = document.getElementById("wpsmtp_widget_send_btn");
+        var status = document.getElementById("wpsmtp_widget_status");
+
+        if (btn && typeof ajaxurl !== "undefined") {
+            btn.addEventListener("click", function () {
+                var to      = document.getElementById("wpsmtp_widget_to").value;
+                var subject = document.getElementById("wpsmtp_widget_subject").value;
+                var body    = document.getElementById("wpsmtp_widget_body").value;
+
+                if (!to || !subject || !body) {
+                    status.innerHTML = "Please fill all fields.";
+                    status.style.color = "#d93025";
+                    return;
+                }
+
+                status.innerHTML = "Sending...";
+                status.style.color = "#555";
+
+                var formData = new FormData();
+                formData.append("action", "wpsmtp_send_email");
+                formData.append("to", to);
+                formData.append("subject", subject);
+                formData.append("body", body);
+                formData.append("cc", "");
+                formData.append("bcc", "");
+                formData.append("source", "widget");
+
+                fetch(ajaxurl, {
+                    method: "POST",
+                    body: formData
+                })
+                .then(function(res){ return res.json(); })
+                .then(function(data){
+                    if (data.success) {
+                        status.innerHTML = data.data;
+                        status.style.color = "#2daa4a";
+                    } else {
+                        status.innerHTML = data.data || "Error sending email.";
+                        status.style.color = "#d93025";
+                    }
+                })
+                .catch(function(){
+                    status.innerHTML = "Connection error.";
+                    status.style.color = "#d93025";
+                });
+            });
+        }
+    });
+    </script>
+    <?php
 }
 
 /**
- * AJAX handler: send email (from composer)
+ * AJAX handler: send email (from composer + widget)
  */
 add_action('wp_ajax_wpsmtp_send_email', 'wpsmtp_send_email_ajax');
 function wpsmtp_send_email_ajax() {
@@ -223,21 +293,62 @@ function wpsmtp_send_email_ajax() {
     $to      = isset($_POST['to']) ? sanitize_email($_POST['to']) : '';
     $subject = isset($_POST['subject']) ? sanitize_text_field($_POST['subject']) : '';
     $body    = isset($_POST['body']) ? wp_kses_post($_POST['body']) : '';
+    $cc_raw  = isset($_POST['cc']) ? sanitize_text_field($_POST['cc']) : '';
+    $bcc_raw = isset($_POST['bcc']) ? sanitize_text_field($_POST['bcc']) : '';
 
     if (!$to || !$subject || !$body) {
         wpsmtp_add_log('error', 'AJAX send failed - missing fields');
         wp_send_json_error('Please fill To, Subject and Body.');
     }
 
+    // Process CC / BCC as comma-separated lists
+    $headers = array();
+
+    if (!empty($cc_raw)) {
+        $cc_list = array_filter(array_map('trim', explode(',', $cc_raw)));
+        $clean_cc = array();
+        foreach ($cc_list as $cc_addr) {
+            $valid = sanitize_email($cc_addr);
+            if (!empty($valid)) {
+                $clean_cc[] = $valid;
+            }
+        }
+        if (!empty($clean_cc)) {
+            $headers[] = 'Cc: ' . implode(', ', $clean_cc);
+        }
+    }
+
+    if (!empty($bcc_raw)) {
+        $bcc_list = array_filter(array_map('trim', explode(',', $bcc_raw)));
+        $clean_bcc = array();
+        foreach ($bcc_list as $bcc_addr) {
+            $valid = sanitize_email($bcc_addr);
+            if (!empty($valid)) {
+                $clean_bcc[] = $valid;
+            }
+        }
+        if (!empty($clean_bcc)) {
+            $headers[] = 'Bcc: ' . implode(', ', $clean_bcc);
+        }
+    }
+
     add_filter('wp_mail_content_type', 'wpsmtp_set_html_mail_type');
-    $sent = wp_mail($to, $subject, nl2br($body));
+    $sent = wp_mail($to, $subject, nl2br($body), $headers);
     remove_filter('wp_mail_content_type', 'wpsmtp_set_html_mail_type');
 
+    $context = array(
+        'to'   => $to,
+        'cc'   => $cc_raw,
+        'bcc'  => $bcc_raw,
+        'src'  => isset($_POST['source']) ? sanitize_text_field($_POST['source']) : 'admin',
+        'subj' => $subject,
+    );
+
     if ($sent) {
-        wpsmtp_add_log('info', 'Email sent via AJAX (immediate).', array('to' => $to, 'subject' => $subject));
+        wpsmtp_add_log('info', 'Email sent via AJAX.', $context);
         wp_send_json_success('Email sent successfully!');
     } else {
-        wpsmtp_add_log('error', 'AJAX email send failed.', array('to' => $to, 'subject' => $subject));
+        wpsmtp_add_log('error', 'AJAX email send failed.', $context);
         wp_send_json_error('Failed to send email. Check Logs.');
     }
 }
@@ -297,7 +408,7 @@ function wpsmtp_admin_page() {
     <div class="wrap wpsmtp-wrap">
         <h1 style="font-size: 28px; margin-bottom: 10px;">WP SMTP & Mailer</h1>
         <p style="color:#666; margin-bottom: 30px;">
-            Configure SMTP, send emails (AJAX), and inspect compact logs.
+            Configure SMTP, send emails (with CC/BCC) via AJAX, and inspect compact logs.
         </p>
 
         <style>
@@ -477,11 +588,13 @@ function wpsmtp_admin_page() {
                     </form>
                 </div>
 
-                <!-- EMAIL COMPOSER (AJAX) -->
+                <!-- EMAIL COMPOSER (AJAX, WITH CC/BCC) -->
                 <div class="wpsmtp-card">
                     <h2>Email Composer</h2>
 
-                    <input class="wpsmtp-input" id="wpsmtp_mail_to" type="email" placeholder="Recipient email">
+                    <input class="wpsmtp-input" id="wpsmtp_mail_to" type="email" placeholder="To (email)">
+                    <input class="wpsmtp-input" id="wpsmtp_mail_cc" type="text" placeholder="CC (comma separated, optional)">
+                    <input class="wpsmtp-input" id="wpsmtp_mail_bcc" type="text" placeholder="BCC (comma separated, optional)">
                     <input class="wpsmtp-input" id="wpsmtp_mail_subject" placeholder="Subject">
                     <textarea class="wpsmtp-textarea" id="wpsmtp_mail_body" placeholder="Write your message...&#10;Supports basic HTML such as &lt;br&gt;, &lt;strong&gt;, &lt;a&gt;, etc."></textarea>
 
@@ -572,18 +685,20 @@ function wpsmtp_admin_page() {
                 });
             }
 
-            // AJAX send email
+            // AJAX send email (admin composer)
             var sendBtn   = document.getElementById("wpsmtp_send_btn");
             var statusBox = document.getElementById("wpsmtp_send_status");
 
             if (sendBtn && typeof ajaxurl !== "undefined") {
                 sendBtn.addEventListener("click", function () {
                     var to      = document.getElementById("wpsmtp_mail_to").value;
+                    var cc      = document.getElementById("wpsmtp_mail_cc").value;
+                    var bcc     = document.getElementById("wpsmtp_mail_bcc").value;
                     var subject = document.getElementById("wpsmtp_mail_subject").value;
                     var body    = document.getElementById("wpsmtp_mail_body").value;
 
                     if (!to || !subject || !body) {
-                        statusBox.innerHTML = "Please fill all fields.";
+                        statusBox.innerHTML = "Please fill at least To, Subject and Body.";
                         statusBox.style.color = "#d93025";
                         return;
                     }
@@ -596,6 +711,9 @@ function wpsmtp_admin_page() {
                     formData.append("to", to);
                     formData.append("subject", subject);
                     formData.append("body", body);
+                    formData.append("cc", cc);
+                    formData.append("bcc", bcc);
+                    formData.append("source", "admin");
 
                     fetch(ajaxurl, {
                         method: "POST",
